@@ -8,6 +8,8 @@
 #include "Eigen-3.3/Eigen/Core"
 #include "Eigen-3.3/Eigen/QR"
 #include "json.hpp"
+#include "spline.h"
+#include "vehicle.h"
 
 using namespace std;
 
@@ -63,7 +65,6 @@ int ClosestWaypoint(double x, double y, const vector<double> &maps_x, const vect
 
 int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x, const vector<double> &maps_y)
 {
-
 	int closestWaypoint = ClosestWaypoint(x,y,maps_x,maps_y);
 
 	double map_x = maps_x[closestWaypoint];
@@ -72,18 +73,17 @@ int NextWaypoint(double x, double y, double theta, const vector<double> &maps_x,
 	double heading = atan2((map_y-y),(map_x-x));
 
 	double angle = fabs(theta-heading);
-  angle = min(2*pi() - angle, angle);
+    angle = min(2*pi() - angle, angle);
+    if(angle > pi()/4)
+    {
+        closestWaypoint++;
+        if (closestWaypoint == maps_x.size())
+        {
+            closestWaypoint = 0;
+        }
+    }
 
-  if(angle > pi()/4)
-  {
-    closestWaypoint++;
-  if (closestWaypoint == maps_x.size())
-  {
-    closestWaypoint = 0;
-  }
-  }
-
-  return closestWaypoint;
+    return closestWaypoint;
 }
 
 // Transform from Cartesian x,y coordinates to Frenet s,d coordinates
@@ -162,6 +162,20 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 	return {x,y};
 
 }
+// Start in lane 1
+int lane = 1;
+
+// Have a ref velocity to target
+double ref_vel = 0.0;
+
+// Max speed value
+const double MAX_SPEED = 49.5;
+
+// Max acceleration value
+const double MAX_ACC = .224;
+
+// Create and initialize my car
+Vehicle myCar;
 
 int main() {
   uWS::Hub h;
@@ -234,17 +248,168 @@ int main() {
           	double end_path_s = j[1]["end_path_s"];
           	double end_path_d = j[1]["end_path_d"];
 
+            // Update my localization
+            myCar.update(car_x, car_y, car_s, car_d, car_yaw);
+            //cout << myCar;
+
           	// Sensor Fusion Data, a list of all other cars on the same side of the road.
           	auto sensor_fusion = j[1]["sensor_fusion"];
 
-          	json msgJson;
+            int prev_size = previous_path_x.size();
 
-          	vector<double> next_x_vals;
+            if (prev_size > 0)
+                myCar.setS(end_path_s);
+
+            // Check surrounding cars
+            myCar.checkSurroundingCars(sensor_fusion, prev_size);
+
+            // Behavior Planning
+            double dvel = 0.0;
+            // Check if a car is ahead..
+            if (myCar.isCarAhead())
+            {
+                // ..and cannot perform lane change
+                if(!myCar.changeLane())
+                    dvel -= MAX_ACC;
+            }
+            // No car ahead..
+            else
+            {
+                // If car is not in the mid lane
+                if (myCar.getLane() != Vehicle::Lane::MID)
+                {
+                    // check if can change to the mid lane
+                    if (myCar.checkLeftLane() || myCar.checkRightLane())
+                        myCar.changeLane(Vehicle::Lane::MID);
+                }
+                // other
+                if (myCar.getSpeed() < MAX_SPEED)
+                    dvel += MAX_ACC;
+            }
+
+            // DRIVE ON LANE WITH MAX_VEL = 49.5 MPH
+
+            // Create a list of widely spaced (x,y) waypoints, evenly spaced at 30m
+            // Later we will interpolate these waypoints with a spline and fill it in with more points that control speed.
+            vector<double> ptsx;
+            vector<double> ptsy;
+
+            // Reference x,y, yaw states
+            // Either we will reference the starting point as where the car is or at the previous paths end point.
+            double ref_x = myCar.getX();
+            double ref_y = myCar.getY();
+            double ref_yaw = deg2rad(myCar.getYaw());
+
+            // if previous size almost empty, use the car as starting reference
+            if (prev_size < 2)
+            {
+                // Use two points that make the path tangent to the car
+                double prev_car_x = myCar.getX() - cos(myCar.getYaw());
+                double prev_car_y = myCar.getY() - sin(myCar.getYaw());
+
+                ptsx.push_back(prev_car_x);
+                ptsx.push_back(myCar.getX());
+
+                ptsy.push_back(prev_car_y);
+                ptsy.push_back(myCar.getY());
+            }
+            // Use the previous path's end point as starting reference
+            else
+            {
+                // Redefine reference state as previous path end point
+                ref_x = previous_path_x[prev_size-1];
+                ref_y = previous_path_y[prev_size-1];
+
+                double ref_x_prev = previous_path_x[prev_size-2];
+                double ref_y_prev = previous_path_y[prev_size-2];
+                ref_yaw = atan2(ref_y-ref_y_prev, ref_x-ref_x_prev);
+
+                // Use 2 points that make the path tangent to the previous path's end point
+                ptsx.push_back(ref_x_prev);
+                ptsx.push_back(ref_x);
+
+                ptsy.push_back(ref_y_prev);
+                ptsy.push_back(ref_y);
+            }
+
+            // In Frenet add evenly 30m spaced points ahead of the starting reference
+            vector<double> next_wp0 = getXY(myCar.getS()+30, (2+4*myCar.getLane()), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp1 = getXY(myCar.getS()+60, (2+4*myCar.getLane()), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+            vector<double> next_wp2 = getXY(myCar.getS()+90, (2+4*myCar.getLane()), map_waypoints_s, map_waypoints_x, map_waypoints_y);
+
+            ptsx.push_back(next_wp0[0]);
+            ptsx.push_back(next_wp1[0]);
+            ptsx.push_back(next_wp2[0]);
+
+            ptsy.push_back(next_wp0[1]);
+            ptsy.push_back(next_wp1[1]);
+            ptsy.push_back(next_wp2[1]);
+
+            for(int i = 0; i < ptsx.size(); ++i)
+            {
+                // Shift car reference angle to 0 degrees
+                double shift_x = ptsx[i]-ref_x;
+                double shift_y = ptsy[i]-ref_y;
+
+                ptsx[i] = (shift_x * cos(0-ref_yaw) - shift_y * sin(0-ref_yaw));
+                ptsy[i] = (shift_x * sin(0-ref_yaw) + shift_y * cos(0-ref_yaw));
+            }
+
+            // Create a spline
+            tk::spline s;
+
+            // Set (x,y) points to the spline
+            s.set_points(ptsx, ptsy);
+
+            // Define the actual (x,y) points we will use for the planner
+            vector<double> next_x_vals;
           	vector<double> next_y_vals;
 
 
-          	// TODO: define a path made up of (x,y) points that the car will visit sequentially every .02 seconds
-          	msgJson["next_x"] = next_x_vals;
+            // Start with all of the previous path points from last time
+            for (int i = 0; i < previous_path_x.size(); ++i)
+            {
+                next_x_vals.push_back(previous_path_x[i]);
+                next_y_vals.push_back(previous_path_y[i]);
+            }
+
+            // Calculate how to break up spline points so that we travel at our desired reference velocity
+            double target_x = 30;
+            double target_y = s(target_x);
+            double target_dist = sqrt((target_x)*(target_x)+(target_y)*(target_y));
+
+            double x_add_on = 0;
+
+            for(int i = 0; i <= 50-previous_path_x.size(); ++i)
+            {
+                myCar.setSpeed(myCar.getSpeed()+dvel);
+                if (myCar.getSpeed() > MAX_SPEED)
+                    myCar.setSpeed(MAX_SPEED);
+                else if (myCar.getSpeed() < MAX_ACC)
+                    myCar.setSpeed(MAX_ACC);
+
+                double N = (target_dist/(.02*myCar.getSpeed()/2.24));
+                double x_point = x_add_on+(target_x)/N;
+                double y_point = s(x_point);
+                x_add_on = x_point;
+
+                double x_ref = x_point;
+                double y_ref = y_point;
+
+                // rotate back to normal after rotating it earlier
+                x_point = (x_ref*cos(ref_yaw) - y_ref*sin(ref_yaw));
+                y_point = (x_ref*sin(ref_yaw) + y_ref*cos(ref_yaw));
+
+                x_point += ref_x;
+                y_point += ref_y;
+
+                next_x_vals.push_back(x_point);
+                next_y_vals.push_back(y_point);
+            }
+
+            // END
+            json msgJson;
+            msgJson["next_x"] = next_x_vals;
           	msgJson["next_y"] = next_y_vals;
 
           	auto msg = "42[\"control\","+ msgJson.dump()+"]";

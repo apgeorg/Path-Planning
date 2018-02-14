@@ -1,3 +1,9 @@
+# Directories
+build/
+
+# .user files
+*.user
+
 # Prerequisites
 *.d
 
