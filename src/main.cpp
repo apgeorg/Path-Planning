@@ -162,17 +162,12 @@ vector<double> getXY(double s, double d, const vector<double> &maps_s, const vec
 	return {x,y};
 
 }
-// Start in lane 1
-int lane = 1;
-
-// Have a ref velocity to target
-double ref_vel = 0.0;
 
 // Max speed value
-const double MAX_SPEED = 49.5;
+const double SPEED_LIMIT = 49.5;
 
 // Max acceleration value
-const double MAX_ACC = .224;
+const double MAX_ACCEL = .224;
 
 // Create and initialize my car
 Vehicle myCar;
@@ -270,7 +265,7 @@ int main() {
             {
                 // ..and cannot perform lane change
                 if(!myCar.changeLane())
-                    dvel -= MAX_ACC;
+                    dvel -= MAX_ACCEL;
             }
             // No car ahead..
             else
@@ -283,8 +278,8 @@ int main() {
                         myCar.changeLane(Vehicle::Lane::MID);
                 }
                 // other
-                if (myCar.getSpeed() < MAX_SPEED)
-                    dvel += MAX_ACC;
+                if (myCar.getSpeed() < SPEED_LIMIT)
+                    dvel += MAX_ACCEL;
             }
 
             // DRIVE ON LANE WITH MAX_VEL = 49.5 MPH
@@ -383,10 +378,10 @@ int main() {
             for(int i = 0; i <= 50-previous_path_x.size(); ++i)
             {
                 myCar.setSpeed(myCar.getSpeed()+dvel);
-                if (myCar.getSpeed() > MAX_SPEED)
-                    myCar.setSpeed(MAX_SPEED);
-                else if (myCar.getSpeed() < MAX_ACC)
-                    myCar.setSpeed(MAX_ACC);
+                if (myCar.getSpeed() > SPEED_LIMIT)
+                    myCar.setSpeed(SPEED_LIMIT);
+                else if (myCar.getSpeed() < MAX_ACCEL)
+                    myCar.setSpeed(MAX_ACCEL);
 
                 double N = (target_dist/(.02*myCar.getSpeed()/2.24));
                 double x_point = x_add_on+(target_x)/N;
