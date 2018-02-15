@@ -4,7 +4,7 @@
 
 ## Overview
 
-The goal of this project is to safely navigate around a virtual highway with other traffic that is driving +-10 MPH of the 50 MPH speed limit.
+The goal of this project is to safely navigate around a virtual highway with other traffic that is driving +-10 mph of the 50 mph speed limit. The highway and the real time data are provided to the planner by Udacity's simulator.
 
 <p align="center"><img width="540" height="400" src="./images/path-planning.png"></p>
 
