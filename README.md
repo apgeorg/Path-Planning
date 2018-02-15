@@ -4,16 +4,16 @@
 
 ## Overview
 
-The goal of this project is to safely navigate around a virtual highway with other traffic that is driving +-10 mph of the 50 mph speed limit. The highway and the real time data are provided to the planner by Udacity's simulator.
+The goal of this project was to build a path planner that navigates a vehicle safely through traffic on a highway. The highway and the real time data are provided by Udacity's simulator.
 
 <p align="center"><img width="540" height="400" src="./images/path-planning.png"></p>
 
-## Model
+## Model Architecture
 
-The overall model can be seperated into 3 main parts:
+The overall model architecture can be seperated into 3 main parts:
 
-- Prediction,
-- Behavior Planning,
+- Environmental Prediction,
+- Behavioral Planning,
 - Trajectory Generation. 
 
 ### Prediction
